@@ -242,6 +242,7 @@ class Aodv extends UnetAgent
     // Check for Route discovery success.
     private void routeDiscoveryCheck(int dest)
     {
+        // Node found in the RT with an ACTIVE route.
         if (nodePresent(dest) == true && getActiveStatus(dest) == ACTIVE && getExpirationTime(dest) > currentTimeMillis())
         {
             println("ROUTE FOUND IN THE RT")
@@ -257,23 +258,23 @@ class Aodv extends UnetAgent
     // Sending Reservation Requests to MAC protocol.
     private void sendMessage(TxFrameReq txReq, int packetType)
     {
-        if (packetType == 0)    // CTRL packets.
+        if (packetType == CTRL_PACKET)
         {
             ReservationReq rs = new ReservationReq(to: txReq.to, duration: controlMsgDuration/1000)
             TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
             reservationTable.add(tr)
-            mac << rs
+            mac << rs       // Send ReservationReq to the MAC Agent.
         }
-        else if (packetType == 1)   // DATA packets.
+        else if (packetType == DATA_PACKET)
         {
             ReservationReq rs = new ReservationReq(to: txReq.to, duration: dataMsgDuration/1000)
             TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
             reservationTable.add(tr)
-            mac << rs
+            mac << rs       // Send ReservationReq to the MAC Agent.
         }
     }
 
-    // After every HELLO_INTERVAL, I check the LAST BROADCAST of a node.
+    // After every HELLO_INTERVAL, check the LAST BROADCAST of a node.
     private void helloPacketCheck()
     {
         add new TickerBehavior(HELLO_INTERVAL, {
@@ -302,7 +303,9 @@ class Aodv extends UnetAgent
             }
             if (checkActive == 0)   // There are no ACTIVE ROUTES in this node's RT.
             {
-                firstActiveRouteFlag = 0
+                firstActiveRouteFlag = 0    // Allows to initiate a new HELLO PACKET check.
+                stop()
+                return
             }
             })
     }
