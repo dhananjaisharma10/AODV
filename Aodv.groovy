@@ -47,34 +47,31 @@ class Aodv extends UnetAgent
     private final static int UNKNOWN_DSN    = -1
 
     // Important parameters:
-    private final static int MAX_NUMBER_OF_TXS     = 2
-    private final static int ALLOWED_HELLO_LOSS    = 2
+    private final static int MAX_NUMBER_OF_TXS  = 2
+    private final static int ALLOWED_HELLO_LOSS = 2
 
-    private final static int DATA_PACKET = 1
-    private final static int CTRL_PACKET = 0
+    private final static int DATA_PACKET    = 1
+    private final static int CTRL_PACKET    = 0
 
     private final static int MAX_RREQ_RATE  = 10
     private final static int MAX_RERR_RATE  = 10
     private final static int NET_DIAMETER   = 35
 
     // Various timeout values:
-    private final static long RANDOM_BACKOFF_TIME     = 2000
-    private final static long ROUTE_DISCOVERY_TIMEOUT = 1000
-    private final static long ACTIVE_ROUTE_TIMEOUT    = 3000
-
-    private final static long HELLO_INTERVAL           = 1000
-    private final static long NODE_TRAVERSAL_TIME      = 40
-    private final static long NET_TRAVERSAL_TIME       = 2*NODE_TRAVERSAL_TIME*NET_DIAMETER
+    private final static long ACTIVE_ROUTE_TIMEOUT = 3000
+    private final static long HELLO_INTERVAL       = 1000
+    private final static long NODE_TRAVERSAL_TIME  = 40
+    private final static long NET_TRAVERSAL_TIME   = 2*NODE_TRAVERSAL_TIME*NET_DIAMETER
 
     // Different Protocols used:
     private final static int ROUTING_PROTOCOL = Protocol.ROUTING
     private final static int RM_PROTOCOL      = Protocol.ROUTE_MAINTENANCE
     private final static int DATA_PROTOCOL    = Protocol.DATA
 
-    private final static double inf = Double.POSITIVE_INFINITY  // Infinity
+    private final static double inf = Double.POSITIVE_INFINITY  // Infinity for Hop Count.
 
-    private final static int HOP_ZERO           = 0
-    private final static int HOP_ONE            = 1
+    private final static int HOP_ZERO         = 0
+    private final static int HOP_ONE          = 1
 
     private final static PDU rreqpacket = PDU.withFormat
     {
