@@ -4,7 +4,6 @@ import org.arl.unet.phy.*
 import org.arl.unet.net.*
 import org.arl.unet.mac.*
 import org.arl.unet.nodeinfo.*
-import java.lang.*
 
 /*  Reference:
 *
