@@ -10,13 +10,9 @@ class Csma extends UnetAgent
 
   private int myAddr
 
-  private final static int MAX_BACKOFF_SLOTS = 13
-  private final static int MIN_BACKOFF_SLOTS = 3
-  private final static int MAX_RETRY_COUNT   = 10
-
+  private final static int MAX_RETRY_COUNT  = 10
   private final static float BACKOFF_RANDOM = 20.milliseconds
-
-  private final static int MAX_QUEUE_LEN = 50
+  private final static int MAX_QUEUE_LEN    = 50
 
   Queue<ReservationReq> queue = new ArrayDeque<ReservationReq>()
 
@@ -25,7 +21,7 @@ class Csma extends UnetAgent
   }
 
   private enum Event {
-    RESERVATION_REQ, RX_CTRL, RX_ROUTE_MAINTENANCE, RX_DATA, SNOOP_CTRL, SNOOP_ROUTE_MAINTENANCE, SNOOP_DATA
+    RX_CTRL, RX_ROUTE_MAINTENANCE, RX_DATA, SNOOP_CTRL, SNOOP_ROUTE_MAINTENANCE, SNOOP_DATA
   }
     
   private FSMBehavior fsm = FSMBuilder.build
@@ -219,7 +215,8 @@ class Csma extends UnetAgent
   private void sendReservationStatusNtf(ReservationReq msg, ReservationStatus status) {
     send new ReservationStatusNtf(recipient: msg.sender, requestID: msg.msgID, to: msg.to, from: myAddr, status: status)
   }
-
+  
+  // Parameters to be received from the simulation file.
   int controlMsgDuration
   int dataMsgDuration
   
