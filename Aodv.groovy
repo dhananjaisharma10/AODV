@@ -49,9 +49,6 @@ class Aodv extends UnetAgent
     private final static int MAX_NUMBER_OF_TXS  = 2
     private final static int ALLOWED_HELLO_LOSS = 2
 
-    private final static int DATA_PACKET    = 1
-    private final static int CTRL_PACKET    = 0
-
     private final static int MAX_RREQ_RATE  = 10
     private final static int MAX_RERR_RATE  = 10
     private final static int NET_DIAMETER   = 35
@@ -211,7 +208,7 @@ class Aodv extends UnetAgent
 
         def bytes = rreqpacket.encode(sourceAddr: myAddr, sourceSeqNum: seqn, broadcastId: temp, destAddr: destination, destSeqNum: dsnvalue, hopCount: HOP_ZERO)
         TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: ROUTING_PROTOCOL, data: bytes)
-        sendMessage(tx, CTRL_PACKET)
+        sendMessage(tx)
         add new WakerBehavior(routeDiscTimeout(destination)*NET_TRAVERSAL_TIME, {  // Page 15. Binary exponential backoff.
             routeDiscoveryCheck(destination)
             })
@@ -243,16 +240,16 @@ class Aodv extends UnetAgent
         }
     }
     // Sending Reservation Requests to MAC protocol.
-    private void sendMessage(TxFrameReq txReq, int packetType)
+    private void sendMessage(TxFrameReq txReq)
     {
-        if (packetType == CTRL_PACKET)
+        if (txReq.type == Physical.CONTROL) // CONTROL packets.
         {
             ReservationReq rs = new ReservationReq(to: txReq.to, duration: controlMsgDuration/1000)
             TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
             reservationTable.add(tr)
             mac << rs       // Send ReservationReq to the MAC Agent.
         }
-        else if (packetType == DATA_PACKET)
+        if (txReq.type == Physical.DATA)    // DATA packets.
         {
             ReservationReq rs = new ReservationReq(to: txReq.to, duration: dataMsgDuration/1000)
             TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
@@ -282,7 +279,7 @@ class Aodv extends UnetAgent
                             protocol:   RM_PROTOCOL,
                             data:       rmpacket.encode(type: HELLO, destAddr: myAddr, destSeqNum: seqn, hopCount: HOP_ZERO, expirationTime: expiry)
                             )
-                        sendMessage(tx, CTRL_PACKET)
+                        sendMessage(tx)
                     }
                     break
                 }
@@ -329,7 +326,7 @@ class Aodv extends UnetAgent
                 // Preparing the RERR packet.
                 def bytes = rmpacket.encode(type: RERR, destAddr: target, destSeqNum: so, hopCount: inf, expirationTime: 0)
                 TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
-                sendMessage(tx, CTRL_PACKET)
+                sendMessage(tx)
 
                 // Wait for this long, then DELETE the route if still INACTIVE.
                 add new WakerBehavior(ALLOWED_HELLO_LOSS*HELLO_INTERVAL, {
@@ -887,7 +884,7 @@ class Aodv extends UnetAgent
                             data:       rreppacket.encode(  sourceAddr: originalsource, destAddr: originaldest,
                                                             destSeqNum: seqn, hopCount: HOP_ZERO, expirationTime: expiry)
                             )
-                        sendMessage(tx, CTRL_PACKET)
+                        sendMessage(tx)
                         return
                     }
 
@@ -904,7 +901,7 @@ class Aodv extends UnetAgent
                             data:       rreqpacket.encode(  sourceAddr: originalsource, sourceSeqNum: osseqnum, broadcastId: requestIDNo,
                                                             destAddr: originaldest, destSeqNum: sop, hopCount: hopcountvalue)
                             )
-                        sendMessage(tx, CTRL_PACKET)
+                        sendMessage(tx)
                         return   
                     }
                 }
@@ -958,7 +955,7 @@ class Aodv extends UnetAgent
                             data:       rreppacket.encode(  sourceAddr: originalsource, destAddr: originaldest,
                                                             destSeqNum: seqn, hopCount: HOP_ZERO, expirationTime: expiry)
                             )
-                        sendMessage(tx, CTRL_PACKET)
+                        sendMessage(tx)
                         return
                     }
 
@@ -995,7 +992,7 @@ class Aodv extends UnetAgent
                                         data:       rreppacket.encode(  sourceAddr: originalsource, destAddr: originaldest,
                                                                         destSeqNum: lo, hopCount: go, expirationTime: expiry)
                                         )
-                                    sendMessage(tx, CTRL_PACKET)
+                                    sendMessage(tx)
                                     
                                     TxFrameReq tx = new TxFrameReq(                 // Preparing the Gratuitous RREP packet.
                                         to:         nextnode
@@ -1004,7 +1001,7 @@ class Aodv extends UnetAgent
                                         data:       rreppacket.encode(  sourceAddr: originaldest, destAddr: originalsource,
                                                                         destSeqNum: osseqnum, hopCount: hopcountvalue, expirationTime: clock)
                                         )
-                                    sendMessage(tx, CTRL_PACKET)
+                                    sendMessage(tx)
                                     return
                                 }
 
@@ -1023,7 +1020,8 @@ class Aodv extends UnetAgent
                                         data:       rreqpacket.encode(  sourceAddr: originalsource, sourceSeqNum: osseqnum, broadcastId: requestIDNo,
                                                                         destAddr: originaldest, destSeqNum: sop, hopCount: hopcountvalue)
                                         )
-                                    sendMessage(tx, CTRL_PACKET)
+                                    sendMessage(tx)
+                                    return
                                 }
                             }
                         }
@@ -1041,8 +1039,7 @@ class Aodv extends UnetAgent
                             data:       rreqpacket.encode(  sourceAddr: originalsource, sourceSeqNum: osseqnum, broadcastId: requestIDNo,
                                                             destAddr: originaldest, destSeqNum: sop, hopCount: hopcountvalue)
                             )
-                        sendMessage(tx, CTRL_PACKET)
-                        return
+                        sendMessage(tx)
                     }
                 }
             } // of RREQ
@@ -1077,7 +1074,7 @@ class Aodv extends UnetAgent
                                 int po = myroutingtable.get(i).nexHop               // Next hop for the OS.
                                 def bytes = rreppacket.encode(sourceAddr: originalsource, destAddr: originaldest, destSeqNum: odseqnum, hopCount: hopcountvalue, expirationTime: exp)
                                 TxFrameReq tx = new TxFrameReq(to: po, type: Physical.CONTROL, protocol: ROUTING_PROTOCOL, data: bytes)
-                                sendMessage(tx, CTRL_PACKET)
+                                sendMessage(tx)
                                 extendRouteLife(po)                         // Extend route life as mentioned on page 21.
 
                                 precursorAddition(originaldest, po)          // Precursor addition, see page 21.
@@ -1136,7 +1133,7 @@ class Aodv extends UnetAgent
                         {
                             def bytes = rmpacket.encode(type: RERR, destAddr: originaldest, destSeqNum: odseqnum, hopCount: inf, expirationTime: 0)
                             TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
-                            sendMessage(tx, CTRL_PACKET)
+                            sendMessage(tx)
 
                             // Wait for this long, then DELETE the route if still INACTIVE.
                             add new WakerBehavior(ALLOWED_HELLO_LOSS*HELLO_INTERVAL, {
@@ -1150,7 +1147,7 @@ class Aodv extends UnetAgent
                         {
                             def bytes = rmpacket.encode(type: RERR, destAddr: originaldest, destSeqNum: odseqnum, hopCount: inf, expirationTime: 0)
                             TxFrameReq tx = new TxFrameReq(to: getPrecursor(originaldest), type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
-                            sendMessage(tx, CTRL_PACKET)
+                            sendMessage(tx)
 
                             // Wait for this long, then DELETE the route if still INACTIVE.
                             add new WakerBehavior(ALLOWED_HELLO_LOSS*HELLO_INTERVAL, {
@@ -1191,7 +1188,7 @@ class Aodv extends UnetAgent
                         {
                             int go = myroutingtable.get(i).nexHop               // Next hop for the OD.
                             TxFrameReq tx = new TxFrameReq(to: go, type: Physical.DATA, protocol: DATA_PROTOCOL, data: dataMsg.encode(source: src, destination: des))
-                            sendMessage(tx, DATA_PACKET)
+                            sendMessage(tx)
                             extendRouteLife(go)         // Update life of the next hop route.
                         }
                         // The route is no longer ACTIVE, broadcast a RERR packet.
@@ -1199,7 +1196,7 @@ class Aodv extends UnetAgent
                         {
                             def bytes = rmpacket.encode(type: RERR, destAddr: des, destSeqNum: ++getDsn(des), hopCount: inf, expirationTime: 0)
                             TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
-                            sendMessage(tx, CTRL_PACKET)
+                            sendMessage(tx)
                             routeErrorPacket(des)    // Sending a RERR packet.
                         }
                         break
