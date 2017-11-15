@@ -173,7 +173,6 @@ class Aodv extends UnetAgent
         subscribe phy
 
         refreshCount()
-        tables()
     }
 
     private void refreshCount()
