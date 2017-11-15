@@ -185,14 +185,6 @@ class Aodv extends UnetAgent
             })
     }
 
-    private void tables()
-    {
-        add new WakerBehavior(590000, {
-            println(myAddr+"'s Routing table  -> "+myroutingtable.destinationAddress+myroutingtable.nexHop)
-            println(myAddr+"'s Precursor List -> "+precursorList.finalnode+precursorList.neighbournode)
-            })
-    }
-
     private void rxDisable()
     {
         // Disable Receiver.
@@ -222,7 +214,6 @@ class Aodv extends UnetAgent
         def bytes = rreqpacket.encode(sourceAddr: myAddr, sourceSeqNum: seqn, broadcastId: temp, destAddr: destination, destSeqNum: dsnvalue, hopCount: HOP_ZERO)
         TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: ROUTING_PROTOCOL, data: bytes)
         sendMessage(tx, CTRL_PACKET)
-        println(myAddr+" STARTING A ROUTE DISCOVERY.")
         add new WakerBehavior(routeDiscTimeout(destination)*NET_TRAVERSAL_TIME, {  // Page 15. Binary exponential backoff.
             routeDiscoveryCheck(destination)
             })
@@ -245,12 +236,10 @@ class Aodv extends UnetAgent
         // Node found in the RT with an ACTIVE route.
         if (nodePresent(dest) == true && getActiveStatus(dest) == ACTIVE && getExpirationTime(dest) > currentTimeMillis())
         {
-            println("ROUTE FOUND IN THE RT")
             return
         }
         else    // Do another Route Discovery.
         {
-            println("ROUTE NOT FOUND. DO ANOTHER ROUTE DISCOVERY.")
             def rdp = agentForService(Services.ROUTE_MAINTENANCE)
             rdp << new RouteDiscoveryReq(to: dest, maxHops: 50, count: 1)
         }
@@ -296,7 +285,6 @@ class Aodv extends UnetAgent
                             data:       rmpacket.encode(type: HELLO, destAddr: myAddr, destSeqNum: seqn, hopCount: HOP_ZERO, expirationTime: expiry)
                             )
                         sendMessage(tx, CTRL_PACKET)
-                        println(myAddr+" HELLO at "+currentTimeMillis())
                     }
                     break
                 }
@@ -336,7 +324,6 @@ class Aodv extends UnetAgent
                 myroutingtable.get(i).expTime = 0           // Route exp time as zero.
                 myroutingtable.get(i).active = INACTIVE     // Route becomes INACTIVE.
                 int so = ++myroutingtable.get(i).dsn        // Incrementing the DSN.
-                println(myAddr+" SENDING a RERR packet for "+target)
 
                 PacketError pe = new PacketError(errnode: target, errnum: so)
                 errorTable.add(pe)      // Add this RERR packet in Error Table history.
@@ -365,7 +352,6 @@ class Aodv extends UnetAgent
         {
             if (myroutingtable.get(i).destinationAddress == dest)
             {
-                println(myAddr+" DELETING ROUTE FOR DEST: "+dest)
                 myroutingtable.remove(i)    // remove route entry.
                 break
             }
@@ -389,7 +375,6 @@ class Aodv extends UnetAgent
         {
             if (myroutingtable.get(i).nexHop == adjacentnode)
             {
-                println(myAddr+" EXTENDED ROUTE LIFE of "+adjacentnode+" NEXTHOP for FD: "+myroutingtable.get(i).destinationAddress)
                 myroutingtable.get(i).active  = ACTIVE
                 myroutingtable.get(i).expTime = Math.max(getExpirationTime(adjacentnode), currentTimeMillis() + ACTIVE_ROUTE_TIMEOUT)   // Page 21.
                 break
@@ -581,7 +566,6 @@ class Aodv extends UnetAgent
                     if (myroutingtable.get(i).expTime <= currentTimeMillis() || myroutingtable.get(i).active == INACTIVE)
                     {
                         myroutingtable.remove(i)
-                        println(myAddr+" Removed FD "+node+" at "+currentTimeMillis())
                     }
                     break
                 }
@@ -896,7 +880,6 @@ class Aodv extends UnetAgent
                         seqn = Math.max(seqn, odseqnum)                                 // Sequence number update.
                         long clock = currentTimeMillis() + ACTIVE_ROUTE_TIMEOUT         // New expiry time for this route.
                         routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, ACTIVE, INVALID_DSN, ACTIVE, NON_HELLO_PACKET, false)
-                        println(myAddr+" is the FD. Sending an RREP back. "+originalsource+' exptime: '+clock)
                         long expiry = currentTimeMillis() + 2*ACTIVE_ROUTE_TIMEOUT      // Page 18, 6.6.1.
 
                         TxFrameReq tx = new TxFrameReq(                         // Preparing the RREP packet.
@@ -916,7 +899,6 @@ class Aodv extends UnetAgent
                         // Page 17
                         routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, INACTIVE, INVALID_DSN, INACTIVE, NON_HELLO_PACKET, true)
                         int sop = Math.max(getDsn(originaldest), odseqnum)      // Sequence number to be transmitted. Page 17: Lastly,...
-                        println(myAddr+" is not the FD. Re-broadcasting the RREQ. "+originalsource+' exptime: '+clock)
                         TxFrameReq tx = new TxFrameReq(                         // Re-broadcast the RREQ packet.
                             to:         Address.BROADCAST,
                             type:       Physical.CONTROL,
@@ -948,7 +930,7 @@ class Aodv extends UnetAgent
                             {
                                 myPacketHistory.get(i).hoco = hopcountvalue     // Updating the hop count.
                             }
-                            else    // This packet is useless.
+                            else    // Discard this packet.
                             {
                                 return
                             }
@@ -1016,7 +998,7 @@ class Aodv extends UnetAgent
                                                                         destSeqNum: lo, hopCount: go, expirationTime: expiry)
                                         )
                                     sendMessage(tx, CTRL_PACKET)
-                                    /*
+                                    
                                     TxFrameReq tx = new TxFrameReq(                 // Preparing the Gratuitous RREP packet.
                                         to:         nextnode
                                         type:       Physical.CONTROL
@@ -1025,7 +1007,6 @@ class Aodv extends UnetAgent
                                                                         destSeqNum: osseqnum, hopCount: hopcountvalue, expirationTime: clock)
                                         )
                                     sendMessage(tx, CTRL_PACKET)
-                                    */
                                     return
                                 }
 
@@ -1045,7 +1026,6 @@ class Aodv extends UnetAgent
                                                                         destAddr: originaldest, destSeqNum: sop, hopCount: hopcountvalue)
                                         )
                                     sendMessage(tx, CTRL_PACKET)
-                                    return
                                 }
                             }
                         }
@@ -1087,13 +1067,11 @@ class Aodv extends UnetAgent
 
                     if (myAddr == originalsource)   // 1) I am the OS.
                     {
-                        println(myAddr+" ROUTE DISCOVERY OVER FOR "+originaldest)
                         rtr << new RouteDiscoveryNtf(to: originaldest, nextHop: msg.from, hops: hopcountvalue, reliability: true) // Send a RouteDiscoveryNtf.
                     }
 
                     else    // 2) I am not the OS.
                     {
-                        println(myAddr+" not the OS. Sending RREP back to the OS.")
                         for (int i = 0; i < myroutingtable.size(); i++)
                         {
                             if (myroutingtable.get(i).destinationAddress == originalsource && myroutingtable.get(i).expTime > currentTimeMillis())
@@ -1125,7 +1103,6 @@ class Aodv extends UnetAgent
 
                 if (packettype == HELLO)        // HELLO packets.
                 {
-                    println(myAddr+" RECEIVED A HELLO PACKET.")
                     long life = Math.max(exp, getExpirationTime(originaldest))      // Page 23.
                     routingDetailsUpdate(originaldest, originaldest, odseqnum, ++hopcountvalue, life, VALID_DSN, ACTIVE, VALID_DSN, ACTIVE, HELLO_PACKET, false)
                 }
@@ -1146,7 +1123,6 @@ class Aodv extends UnetAgent
                     // The PRECURSORS shall check this Dest and make the corresponding ROUTE ENTRY UNREACHABLE.
                     if (nodePresent(originaldest))
                     {
-                        println(myAddr+" SENDING RERR.")
                         routeUnreachable(originaldest)      // page 25: 6.11. -> (iii)
                         // If I have this Dest in my precursor list, I BROADCAST the RERR packet to let other nodes know of the error.
                         int numOfPrecursors = 0
@@ -1160,7 +1136,6 @@ class Aodv extends UnetAgent
 
                         if (numOfPrecursors > 1)    // There are more than 1 precursors for this DEST. BROADCAST the packet.
                         {
-                            println(myAddr+" MORE THAN ONE PRECURSORS.")
                             def bytes = rmpacket.encode(type: RERR, destAddr: originaldest, destSeqNum: odseqnum, hopCount: inf, expirationTime: 0)
                             TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
                             sendMessage(tx, CTRL_PACKET)
@@ -1175,7 +1150,6 @@ class Aodv extends UnetAgent
                         }
                         else if (numOfPrecursors == 1)  // There is only 1 precursor for this DEST. UNICAST the packet.
                         {
-                            println(myAddr+" ONLY ONE PRECURSOR")
                             def bytes = rmpacket.encode(type: RERR, destAddr: originaldest, destSeqNum: odseqnum, hopCount: inf, expirationTime: 0)
                             TxFrameReq tx = new TxFrameReq(to: getPrecursor(originaldest), type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
                             sendMessage(tx, CTRL_PACKET)
@@ -1190,7 +1164,6 @@ class Aodv extends UnetAgent
                         }
                         else if (numOfPrecursors == 0)  // No precursors left for this DEST.
                         {
-                            println(myAddr+" ALL PRECURSORS NOTIFIED.")
                             // Do nothing. All ACTIVE node have been notified of the faulty route.
                         }
                     }
@@ -1208,7 +1181,7 @@ class Aodv extends UnetAgent
 
             if (myAddr == des)  // 1) I am the final destinaion.
             {
-                println(myAddr+" DATA RECEIVED!")
+                //
             }
             else                // 2) I am not the final destination for the DATA packet.
             {
@@ -1219,7 +1192,6 @@ class Aodv extends UnetAgent
                         if (myroutingtable.get(i).active == ACTIVE && myroutingtable.get(i).expTime > currentTimeMillis())
                         {
                             int go = myroutingtable.get(i).nexHop               // Next hop for the OD.
-                            println(myAddr+" sending DATA to "+des+" via "+go)
                             TxFrameReq tx = new TxFrameReq(to: go, type: Physical.DATA, protocol: DATA_PROTOCOL, data: dataMsg.encode(source: src, destination: des))
                             sendMessage(tx, DATA_PACKET)
                             extendRouteLife(go)         // Update life of the next hop route.
@@ -1230,7 +1202,6 @@ class Aodv extends UnetAgent
                             def bytes = rmpacket.encode(type: RERR, destAddr: des, destSeqNum: ++getDsn(des), hopCount: inf, expirationTime: 0)
                             TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
                             sendMessage(tx, CTRL_PACKET)
-                            println(myAddr+" CALLING THE RERR METHOD for "+des)
                             routeErrorPacket(des)    // Sending a RERR packet.
                         }
                         break
