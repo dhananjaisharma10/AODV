@@ -2,7 +2,7 @@ import org.arl.fjage.*
 import org.arl.unet.*
 import org.arl.unet.phy.*
 import org.arl.unet.mac.*
-import org.arl.unet.nodeinfo.NodeInfo
+import org.arl.unet.nodeinfo.*
 
 class Csma extends UnetAgent
 {
@@ -10,18 +10,17 @@ class Csma extends UnetAgent
 
   private int myAddr
 
-  private final static int MAX_RETRY_COUNT  = 10
-  private final static float BACKOFF_RANDOM = 20.milliseconds
-  private final static int MAX_QUEUE_LEN    = 50
+  private final static int MAX_RETRY_COUNT  = 6
+
+  private final static float BACKOFF_RANDOM = 3.seconds
+  private final static float MAX_PROP_DELAY = 1350.milliseconds   // for 1000 m tx range and 1500 mps acoustic speed.
+
+  private final static int MAX_QUEUE_LEN = 16
 
   Queue<ReservationReq> queue = new ArrayDeque<ReservationReq>()
 
   private enum State {
     IDLE, WAIT, SENSING, BACKOFF
-  }
-
-  private enum Event {
-    RX_CTRL, RX_ROUTE_MAINTENANCE, RX_DATA, SNOOP_CTRL, SNOOP_ROUTE_MAINTENANCE, SNOOP_DATA
   }
     
   private FSMBehavior fsm = FSMBuilder.build
@@ -29,7 +28,8 @@ class Csma extends UnetAgent
     int retryCount = 0
     float backoff = 0
 
-    state(State.IDLE) {   // State
+    // IDLE state.
+    state(State.IDLE) {
       action {
         if (!queue.isEmpty()) {
           setNextState(State.SENSING)
@@ -38,7 +38,8 @@ class Csma extends UnetAgent
       }
     }
 
-    state(State.WAIT) {   // State
+    // Wait for random time before sensing the channel.
+    state(State.WAIT) {
       onEnter {
         after(rnd(0, BACKOFF_RANDOM)) {
           setNextState(State.SENSING)
@@ -46,63 +47,39 @@ class Csma extends UnetAgent
       }
     }
 
-    state(State.BACKOFF) {  // State
+    // Backoff state.
+    state(State.BACKOFF) {
       onEnter {
         after(backoff.milliseconds) {
           setNextState(State.SENSING)
         }
       }
-
-      onEvent(Event.RX_CTRL) {
-        backoff = controlMsgDuration
-        reenterState()
-      }
-
-      onEvent(Event.RX_ROUTE_MAINTENANCE) {
-        backoff = 1.62  // duration for RM packets.
-        reenterState()
-      }
-
-      onEvent(Event.RX_DATA) {
-        backoff = dataMsgDuration
-        reenterState()
-      }
-
-      onEvent(Event.SNOOP_CTRL) {
-        backoff = controlMsgDuration
-        reenterState()
-      }
-
-      onEvent(Event.SNOOP_CTRL) {
-        backoff = 1.62  // duration for RM packets.
-        reenterState()
-      }
-
-      onEvent(Event.SNOOP_DATA) {
-        backoff = dataMsgDuration
-        reenterState()
-      }
     }
 
-    state(State.SENSING) {  // State
+    // Sense the channel.
+    state(State.SENSING) {
       onEnter {
+
         if (phy.busy) { // This would only be for receiving any packets.
+
           if (retryCount == MAX_RETRY_COUNT) {
             sendReservationStatusNtf(queue.poll(), ReservationStatus.FAILURE)
             retryCount = 0
             setNextState(State.IDLE)
           }
+
           else if (retryCount < MAX_RETRY_COUNT) {
             retryCount++
             Message msg = queue.peek()
-            backoff = getNumberofSlots(retryCount)*msg.duration*1000  // Duration of backoff in milliseconds.
+            // in ms
+            backoff = AgentLocalRandom.current().nextExp(targetLoad/msg.duration)*1000
             setNextState(State.BACKOFF)
           }
         }
+
         else {  // Send Ntf
           ReservationReq msg = queue.poll()
           retryCount = 0
-          phy << new ClearReq()
           rxDisable()
           sendReservationStatusNtf(msg, ReservationStatus.START)
           after(msg.duration) {
@@ -113,16 +90,6 @@ class Csma extends UnetAgent
         }
       }
     }
-  }
-  // Exponential Backoff slots.
-  private int getNumberofSlots(int slots)
-  {
-    int product = 1
-    while(slots > 0) {
-      product = product*2
-      slots--
-    }
-    return AgentLocalRandom.current().nextInt(--product)
   }
 
   @Override
@@ -158,9 +125,9 @@ class Csma extends UnetAgent
       }
       return new ReservationRsp(msg)
       case ReservationCancelReq:
-      case ReservationAcceptReq:                                  // respond to other requests defined
+      case ReservationAcceptReq:                                  //  respond to other requests defined
       case TxAckReq:                                              //  by the MAC service trivially with
-        return new Message(msg, Performative.REFUSE)            //  a REFUSE performative
+        return new Message(msg, Performative.REFUSE)              //  a REFUSE performative
     }
     return null
   }
@@ -170,27 +137,13 @@ class Csma extends UnetAgent
   {
     if (msg instanceof RxFrameNtf)
     {
-      if (msg.type == Physical.CONTROL)
-      {
-        if (msg.protocol == Protocol.ROUTING)
-        {
-          fsm.trigger(msg.to == myAddr ? Event.RX_CTRL : Event.SNOOP_CTRL)
-        }
-        if (msg.protocol == Protocol.ROUTE_MAINTENANCE)
-        {
-          fsm.trigger(msg.to == myAddr ? Event.RX_ROUTE_MAINTENANCE : Event.SNOOP_ROUTE_MAINTENANCE)
-        }
-      }
-      if (msg.type == Physical.DATA)
-      {
-        fsm.trigger(msg.to == myAddr ? Event.RX_DATA : Event.SNOOP_DATA)
-      }
+      //
     }
   }
 
   private void rxDisable()
   {
-    //  Disable Receiver.
+    // Disable Receiver.
     ParameterReq req = new ParameterReq(agentForService(Services.PHYSICAL))
     req.get(PhysicalParam.rxEnable)
     ParameterRsp rsp = (ParameterRsp) request(req, 1000)            
@@ -206,7 +159,11 @@ class Csma extends UnetAgent
     rsp.set(PhysicalParam.rxEnable,true) 
   }
 
-  final float maxReservationDuration = 0.01 // in seconds
+  ////// expose parameters that are expected of a MAC service
+
+  final int reservationPayloadSize = 0            // read-only parameters
+  final int ackPayloadSize = 0
+  final float maxReservationDuration = 65.535 // in seconds
 
   boolean getChannelBusy() {                      // channel is considered busy if fsm is not IDLE
     return fsm.currentState.name != State.IDLE
@@ -215,9 +172,10 @@ class Csma extends UnetAgent
   private void sendReservationStatusNtf(ReservationReq msg, ReservationStatus status) {
     send new ReservationStatusNtf(recipient: msg.sender, requestID: msg.msgID, to: msg.to, from: myAddr, status: status)
   }
-  
+
   // Parameters to be received from the simulation file.
   int controlMsgDuration
   int dataMsgDuration
-  
+  double targetLoad     // load per node.
+
 }

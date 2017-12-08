@@ -5,7 +5,10 @@ import org.arl.unet.net.*
 import org.arl.unet.mac.*
 import org.arl.unet.nodeinfo.*
 
-/*  Reference:
+/*  The class implements an Ad hoc On-demand Distance Vector-based routing protocol (designed for MANETs)
+ *  for a Shallow Water Ad Hoc Network.
+ *
+ *  Reference:
  *
  *  C. Perkins, E. Belding-Royer, and S. Das, "Ad-hoc On-Demand Distance Vector (AODV)
  *  Routing," RFC 3561, 2003.
@@ -23,15 +26,12 @@ class Aodv extends UnetAgent
     private int rreqcount = 0               // Monitors the RREQ rate per second.
     private int rerrcount = 0               // Monitors the RERR rate per second.
     private int firstActiveRouteFlag = 0    // Monitors the FIRST ACTIVE ROUTE instance to initiate HELLO PACKET CHECK.
-    private long lastbroadcast = 0          // Last BROADCAST time to facilitate HELLO PACKET check.
 
     // CONSTANT values ->
 
     // Types of packet:
-    private final static int RREQ               = 0x01
-    private final static int RREP               = 0x02
-    private final static int RERR               = 0x03
-    private final static int HELLO              = 0x04
+    private final static int RERR               = 0x01
+    private final static int HELLO              = 0x02
 
     // Sequence number status:
     private final static int VALID_DSN          = 1
@@ -39,17 +39,14 @@ class Aodv extends UnetAgent
     private final static int UNKNOWN_DSN        = -1
 
     // Important parameters:
-    private final static int MAX_NUMBER_OF_TXS  = 3
+    private final static int MAX_NUMBER_OF_TXS  = 1
     private final static int ALLOWED_HELLO_LOSS = 2
-
-    private final static int MAX_RREQ_RATE      = 10
-    private final static int MAX_RERR_RATE      = 10
-    private final static int NET_DIAMETER       = 35
+    private final static int NET_DIAMETER       = 6
 
     // Various timeout values:
-    private final static long ACTIVE_ROUTE_TIMEOUT  = 3000
-    private final static long HELLO_INTERVAL        = 1000
-    private final static long NODE_TRAVERSAL_TIME   = 40
+    private final static long ACTIVE_ROUTE_TIMEOUT  = 60000
+    private final static long HELLO_INTERVAL        = 30000
+    private final static long NODE_TRAVERSAL_TIME   = 5000
     private final static long NET_TRAVERSAL_TIME    = 2*NODE_TRAVERSAL_TIME*NET_DIAMETER
 
     // Different Protocols used:
@@ -64,9 +61,11 @@ class Aodv extends UnetAgent
     private final static boolean ACTIVE           = true
     private final static boolean INACTIVE         = false
 
+    // HELLO or NON HELLO packet:
     private final static boolean NON_HELLO_PACKET = true
     private final static boolean HELLO_PACKET     = false
 
+    // RREQ or Non RREQ packet:
     private final static boolean RREQ_PKT         = true
     private final static boolean NON_RREQ         = false  
 
@@ -118,12 +117,14 @@ class Aodv extends UnetAgent
         private boolean active
     }
 
+    // Number of retransmissions for every destination.
     private class AttemptingHistory
     {
         private int destinationAddr
         private int num
     }
 
+    // Packet history table.
     private class PacketHistory
     {
         private int osna
@@ -131,18 +132,21 @@ class Aodv extends UnetAgent
         private int hoco
     }
 
+    // To maintain precursor list.
     private class Precursor
     {
         private int finalnode
         private int neighbournode
     }
 
+    // Reservations for MAC.
     private class TxReserve
     {
         private TxFrameReq txreq
         private ReservationReq resreq
     }
 
+    // Route error packet table.
     private class PacketError
     {
         private int errnode   // faulty route to this DESTINATION.
@@ -165,33 +169,15 @@ class Aodv extends UnetAgent
     @Override
     void startup()
     {
-        node = agentForService(Services.NODE_INFO)
+
+        node = agentForService(Services.NODE_INFO)  // Node information
         myAddr = node.Address
 
-        mac = agentForService(Services.MAC)
-        rtr = agentForService(Services.ROUTING)
-        phy = agentForService(Services.PHYSICAL)
-        subscribe phy
+        mac = agentForService(Services.MAC)         // MAC services
+        rtr = agentForService(Services.ROUTING)     // Routing services
+        phy = agentForService(Services.PHYSICAL)    // Physical layer services
+        subscribe phy                               // subscribe to phy for Notifications
 
-        refreshCount()
-        tables()
-    }
-
-    // To refresh the RREQ and RERR count after every second.
-    private void refreshCount()
-    {
-        add new TickerBehavior(1000, {
-            rreqcount = 0
-            rerrcount = 0
-            })
-    }
-
-    private void tables()
-    {
-        add new WakerBehavior(590000, {
-            println(myAddr+"'s Routing table  -> "+myroutingtable.destinationAddress+myroutingtable.nexHop)
-            println(myAddr+"'s Precursor List -> "+precursorList.finalnode+precursorList.neighbournode)
-            })
     }
 
     private void rxDisable()
@@ -215,24 +201,23 @@ class Aodv extends UnetAgent
     // Broadcast RREQ for Route Discovery.
     private void sendRreqBroadcast(int destination)
     {
-        int dsnvalue = getDsn(destination)    // Some value, or UNKNOWN DSN.
+        int dsnvalue = getDsn(destination)    // Either some (known) value or UNKNOWN DSN.
 
         // Before broadcasting the RREQ, save the details of this packet.
         PacketHistory ph = new PacketHistory(osna: myAddr, ridn: temp, hoco: HOP_ZERO)
         myPacketHistory.add(ph)
-        packetHistoryDeletion(myAddr, temp, HOP_ZERO)
+        packetHistoryDeletion(myAddr, temp, HOP_ZERO)       // Packet History shall be deleted after a certain time.
 
+        // Preparing the RREQ-BROADCAST packet.
         def bytes = rreqpacket.encode(sourceAddr: myAddr, sourceSeqNum: seqn, broadcastId: temp, destAddr: destination, destSeqNum: dsnvalue, hopCount: HOP_ZERO)
         TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: ROUTING_PROTOCOL, data: bytes)
 
         sendMessage(tx)
 
-        println(myAddr+" STARTING A ROUTE DISCOVERY.")
-
         // Page 15: Binary exponential backoff-based timeout for ROUTE DISCOVERY CHECK.
-        add new WakerBehavior(routeDiscTimeout(destination)*NET_TRAVERSAL_TIME, {
-            routeDiscoveryCheck(destination)
-            })
+        /*add new WakerBehavior(routeDiscTimeout(destination)*NET_TRAVERSAL_TIME, {
+            //routeDiscoveryCheck(destination)
+            })*/
     }
 
     // Binary exponential backoff for retransmissions.
@@ -253,14 +238,12 @@ class Aodv extends UnetAgent
         // Destination node found in the RT with an ACTIVE route.
         if (nodePresent(dest) == true && getActiveStatus(dest) == ACTIVE && getExpirationTime(dest) >= currentTimeMillis())
         {
-            println("ROUTE FOUND IN THE RT")
             return
         }
 
         // Do another Route Discovery.
         else
         {
-            println("ROUTE NOT FOUND. DO ANOTHER ROUTE DISCOVERY.")
             def rdp = agentForService(Services.ROUTE_MAINTENANCE)
             rdp << new RouteDiscoveryReq(to: dest, maxHops: 50, count: 1)
         }
@@ -269,9 +252,9 @@ class Aodv extends UnetAgent
     // Sending Reservation Requests for exponential backoff-based carrier sensing.
     private void sendMessage(TxFrameReq txReq)
     {
-        if (txReq.type == Physical.CONTROL)     // CTRL packets.
+        if (txReq.type == Physical.CONTROL)     	// CONTROL packets.
         {
-            if (txReq.protocol == ROUTING_PROTOCOL)
+            if (txReq.protocol == ROUTING_PROTOCOL)	// RREQ and RREP packets.
             {
                 ReservationReq rs = new ReservationReq(to: txReq.to, duration: controlMsgDuration/1000)
                 TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
@@ -279,7 +262,7 @@ class Aodv extends UnetAgent
                 mac << rs                           // send ReservationReq.
             }
 
-            if (txReq.protocol == RM_PROTOCOL)
+            if (txReq.protocol == RM_PROTOCOL)		// RERR and HELLO packets.
             {
                 ReservationReq rs = new ReservationReq(to: txReq.to, duration: 1.62/1000)
                 TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
@@ -288,12 +271,12 @@ class Aodv extends UnetAgent
             }
         }
 
-        if (txReq.type == Physical.DATA)        // DATA packets.
+        if (txReq.type == Physical.DATA)        	// DATA packets.
         {
             ReservationReq rs = new ReservationReq(to: txReq.to, duration: dataMsgDuration/1000)
             TxReserve tr = new TxReserve(txreq: txReq, resreq: rs)
             reservationTable.add(tr)
-            mac << rs                           // send ReservationReq.
+            mac << rs                           	// send ReservationReq.
         }
     }
 
@@ -303,70 +286,46 @@ class Aodv extends UnetAgent
     {
         add new TickerBehavior(HELLO_INTERVAL, {
 
-            int checkActive = 0     // After every HELLO_INTERVAL, this should become 1 if there's a single ACTIVE ROUTE present.
+            int checkActive = 0     // After every HELLO_INTERVAL, this should become 1 if there's a single ACTIVE NEIGHBOUR ROUTE present.
 
             for (int i = 0; i < myroutingtable.size(); i++)
             {
-                // If there is any ACTIVE route, I check whether I BROADCASTED any packet in the last HELLO_INTERVAL.
-                if (myroutingtable.get(i).active == ACTIVE && myroutingtable.get(i).expTime >= currentTimeMillis())
+                // If there is any ACTIVE NEIGHBOUR route, I check whether I BROADCASTED any packet in the last HELLO_INTERVAL.
+                if (myroutingtable.get(i).destinationAddress == myroutingtable.get(i).nexHop &&
+                        myroutingtable.get(i).active == ACTIVE && (myroutingtable.get(i).expTime - currentTimeMillis()) < 5000)
                 {
-                    checkActive = 1
+                    checkActive = 1		// An ACTIVE NEIGHBOUR ROUTE is present.
 
-                    add new WakerBehavior(rnd(0, HELLO_INTERVAL), 
-                    {
-                        if (lastbroadcast < currentTimeMillis() - HELLO_INTERVAL)   // Last broadcast happened before HELLO_INTERVAL.
-                        {
-                            long expiry = currentTimeMillis() + ALLOWED_HELLO_LOSS*HELLO_INTERVAL   // See Page 22.
+                    long expiry = currentTimeMillis() + ALLOWED_HELLO_LOSS*HELLO_INTERVAL   // See Page 22.
 
-                            TxFrameReq tx = new TxFrameReq(         // Preparing the HELLO packet.
-                                to:         Address.BROADCAST,
-                                type:       Physical.CONTROL,
-                                protocol:   RM_PROTOCOL,
-                                data:       rmpacket.encode(type: HELLO, destAddr: myAddr, destSeqNum: seqn, hopCount: HOP_ZERO, expirationTime: expiry)
-                                )
+                    def bytes = rmpacket.encode(type: HELLO, destAddr: myAddr, destSeqNum: seqn, hopCount: HOP_ZERO, expirationTime: expiry)
+                    TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
 
-                            sendMessage(tx)
-                            println(myAddr+" HELLO at "+currentTimeMillis())
-                        }
-                        })
+                    sendMessage(tx)
 
                     break
                 }
             }
 
-            if (checkActive == 0)   // There are no ACTIVE ROUTES in this node's RT.
+            if (checkActive == 0)   		// There are no ACTIVE NEIGHBOUR ROUTES in this node's RT.
             {
-                firstActiveRouteFlag = 0
+                firstActiveRouteFlag = 0	// Turn OFF local connectivity management as there's no ACTIVE NEIGHBOUR ROUTE.
                 stop()
                 return
             }
             })
     }
 
-    // To look after HELLO PACKET-generated routes regularly. See page 22, 6.9.
-    private void helloRoute(int node)
-    {
-        add new TickerBehavior(ALLOWED_HELLO_LOSS*HELLO_INTERVAL,
-        {
-            if (getActiveStatus(node) == INACTIVE || getExpirationTime(node) < currentTimeMillis())
-            {
-                routeErrorPacket(node)  // Do a ROUTE ERROR analysis.
-            }
-            })
-    }
-
-    // Sending RERR to the PRECURSORS (if any) of the affected destination.
+    // Sending RERR to PRECURSORS (if any) of the affected destination.
     private void routeErrorPacket(int target)
     {
         for (int i = 0; i < myroutingtable.size(); i++)
         {
             if (myroutingtable.get(i).destinationAddress == target)
             {
-                myroutingtable.get(i).expTime = 0           // EXPIRATION time as zero.
-                myroutingtable.get(i).active = INACTIVE     // DEACTIVATING the route.
-                int so = ++myroutingtable.get(i).dsn        // Incrementing the DSN.
-
-                println(myAddr+" SENDING a RERR packet for "+target)
+                myroutingtable.get(i).expTime = 0                   // EXPIRATION time as zero.
+                myroutingtable.get(i).active = INACTIVE             // DEACTIVATING the route.
+                int so = ++myroutingtable.get(i).dsn                // Incrementing the DSN.
 
                 // Send a RERR packet if there are any PRECURSORS for TARGET.
 
@@ -409,7 +368,76 @@ class Aodv extends UnetAgent
                         removeRouteEntry(target)
                     }
 
+                    else
+                    {
+                        // The route was ACTIVATED.
+                    }
                     })
+
+                // If it is a faulty Neighbour Node, also send a RERR packet for all the destinations reached using this as the NEXT HOP.
+            	if (myroutingtable.get(i).nexHop == target)
+            	{
+
+                    for (int j = 0; j < myroutingtable.size(); j++)
+                    {
+                        // DEACTIVATE all the ACTIVE routes using TARGET as their next hop.
+                        if (myroutingtable.get(j).destinationAddress != target &&
+                                (myroutingtable.get(j).active == ACTIVE || myroutingtable.get(j).expTime < currentTimeMillis()))
+                        {
+
+                            int finaldest = myroutingtable.get(j).destinationAddress
+                            int incdsn = ++myroutingtable.get(j).dsn        // Incrementing the DSN.
+
+                            myroutingtable.get(j).expTime = 0               // EXPIRATION time as zero.
+                            myroutingtable.get(j).active = INACTIVE         // DEACTIVATING the route.
+
+                            if (getPrecursorCount(finaldest) == 0)
+                            {
+                                // No need for RERR unicast or broadcast.
+                            }
+
+                            // There is only ONE PRECURSOR.
+                            if (getPrecursorCount(finaldest) == 1)
+                            {
+                                PacketError pe = new PacketError(errnode: finaldest, errnum: incdsn)
+                                errorTable.add(pe)      // Add this RERR packet in Error Table history.
+
+                                // Preparing the RERR packet for UNICAST.
+                                def bytes = rmpacket.encode(type: RERR, destAddr: finaldest, destSeqNum: incdsn, hopCount: inf, expirationTime: 0)
+                                TxFrameReq tx = new TxFrameReq(to: getPrecursor(finaldest), type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
+
+                                sendMessage(tx)
+                            }
+
+                            // There are MORE THAN ONE PRECURSORS.
+                            if (getPrecursorCount(finaldest) > 1)
+                            {
+                                PacketError pe = new PacketError(errnode: finaldest, errnum: incdsn)
+                                errorTable.add(pe)      // Add this RERR packet in Error Table history.
+
+                                // Preparing the RERR packet for BROADCAST.
+                                def bytes = rmpacket.encode(type: RERR, destAddr: finaldest, destSeqNum: incdsn, hopCount: inf, expirationTime: 0)
+                                TxFrameReq tx = new TxFrameReq(to: Address.BROADCAST, type: Physical.CONTROL, protocol: RM_PROTOCOL, data: bytes)
+
+                                sendMessage(tx)
+                            }
+
+                            // Wait for this long, then DELETE the route if still INACTIVE.
+                            add new WakerBehavior(ALLOWED_HELLO_LOSS*HELLO_INTERVAL, 
+                            {
+                                if (getActiveStatus(finaldest) == INACTIVE || getExpirationTime(finaldest) < currentTimeMillis())
+                                {
+                                    removeRouteEntry(finaldest)
+                                }
+
+                                else
+                                {
+                                    // The route was ACTIVATED.
+                                }
+                                })
+            			}
+            		}
+            	}
 
                 break
             }
@@ -423,7 +451,6 @@ class Aodv extends UnetAgent
         {
             if (myroutingtable.get(i).destinationAddress == dest)
             {
-                println(myAddr+" DELETING ROUTE FOR DEST: "+dest)
                 myroutingtable.remove(i)    // remove route entry.
                 break
             }
@@ -446,7 +473,6 @@ class Aodv extends UnetAgent
         {
             if (myroutingtable.get(i).destinationAddress == node)
             {
-                println(myAddr+" EXTENDED ROUTE LIFE of "+node)
                 myroutingtable.get(i).active  = ACTIVE
                 myroutingtable.get(i).expTime = Math.max(getExpirationTime(node), currentTimeMillis() + ACTIVE_ROUTE_TIMEOUT)   // Page 21.
                 break
@@ -454,11 +480,11 @@ class Aodv extends UnetAgent
         }
     }
 
-    /*  If the OS is already there in the RT, update its details in case
-    *   the seq number of packet < the sequence number in the RT, or
-    *   the seq numbers of both the packet and the RT are equal, but the packet has a smaller hop count than that in the RT, or
-    *   the seq number in the RT is UNKNOWN.
-    */
+    /*   If the OS is already there in the RT, update its details in case
+     *   the seq number of packet < the sequence number in the RT, or
+     *   the seq numbers of both the packet and the RT are equal, but the packet has a smaller hop count than that in the RT, or
+     *   the seq number in the RT is UNKNOWN.
+     */
     private void routingDetailsUpdate(  int origin, int from, int seqnum, int hcv, long life, int statusone, boolean statustwo,
                                         int statusthree, boolean statusfour, boolean nonhello, boolean rreq)
     {
@@ -521,23 +547,26 @@ class Aodv extends UnetAgent
 
                 myroutingtable.add(ri)
 
-                if (nonhello && rreq)       // To purge any unwanted route entries created during a Route Discovery.
+                if (rreq)                   // To purge any unwanted route entries created during a Route Discovery.
                 {                           // Only RREQ-generated routes.
                     routeValidityCheck(life - currentTimeMillis(), origin)
                 }
 
             }
 
-            if (nonhello && statustwo && firstActiveRouteFlag == 0)     // The Non HELLO PACKET-generated ROUTE is ACTIVE.
+            /*if (nonhello && statustwo)     // The Non HELLO PACKET-generated ROUTE is ACTIVE.
             {                                                           // HELLO Packet Check has not yet been initiated.
-                firstActiveRouteFlag = 1
+                
 
-                localConnectivityManagement()   // Start HELLO PACKET check as I have an ACTIVE NEIGHBOUR node.
-            }
+                   // Start HELLO PACKET check as I have an ACTIVE NEIGHBOUR node.
+            }*/
 
-            if (!nonhello)                      // It's a HELLO packet-generated route. Monitor its status regularly.
+            // THIS IS FOR NEIGHBOUR NODES
+            if (statustwo && firstActiveRouteFlag == 0)                      // It's a HELLO packet-generated route. Monitor its status regularly.
             {
-                helloRoute(origin)              // Page 22, 6.9.
+                firstActiveRouteFlag = 1        // LOCAL CONNECTIVITY MANAGEMENT BEGINS
+
+                localConnectivityManagement()              // Page 22, 6.9.
             }
 
         }
@@ -682,7 +711,6 @@ class Aodv extends UnetAgent
                     if (myroutingtable.get(i).expTime < currentTimeMillis() || myroutingtable.get(i).active == INACTIVE)
                     {
                         myroutingtable.remove(i)
-                        println(myAddr+" REMOVED UNWANTED REVERSE ENTRY "+node)
                         return
                     }
                 }
@@ -702,7 +730,7 @@ class Aodv extends UnetAgent
                 {
                     if (myroutingtable.get(i).expTime < currentTimeMillis() || myroutingtable.get(i).active == INACTIVE)
                     {
-                        routeErrorPacket(node)      // Notify the other PRECURSORS about this INACTIVE route.
+                        routeErrorPacket(node)      // Do a Route Error analysis on this node.
                         stop()
                         return
                     }
@@ -859,7 +887,7 @@ class Aodv extends UnetAgent
         precursorList.add(pc)
     }
 
-    /*  0: Max no. of transmissions not yet reached, but the node has been searched before.
+   /*   0: Max no. of transmissions not yet reached, but the node has been searched before.
     *   1: Node is searching for the first time. Do a route discovery.
     *   2: Maximum number of transmissions reached for this node. Refuse the request.
     */
@@ -896,7 +924,7 @@ class Aodv extends UnetAgent
             {
                 int reTxCheck = retransmissionCheck(fd)
 
-                if (reTxCheck == 0 && rreqcount <= MAX_RREQ_RATE) // 1) This dest has been searched before, but it hasn't reached its max txs yet.
+                if (reTxCheck == 0) // 1.1) This dest has been searched before, but it hasn't reached its max txs yet.
                 {
                     for (int i = 0; i < attemptHistory.size(); i++)
                     {
@@ -912,7 +940,7 @@ class Aodv extends UnetAgent
                     }
                 }
 
-                else if (reTxCheck == 1 && rreqcount <= MAX_RREQ_RATE)    // 2) This dest is being searched for the first time.
+                else if (reTxCheck == 1)    // 1.2) This dest is being searched for the first time.
                 {
                     rreqcount++                         // Incrementing the RREQ count.
                     AttemptingHistory tr = new AttemptingHistory(destinationAddr: fd, num: 1)
@@ -923,7 +951,7 @@ class Aodv extends UnetAgent
                     return new Message(msg, Performative.AGREE)
                 }
 
-                else if (reTxCheck == 2)    // 3) Max txs limit reached. The node is unreachable, so refuse.
+                else if (reTxCheck == 2)    // 1.3) Max txs limit reached. The node is unreachable, so refuse.
                 {
                     return new Message(msg, Performative.REFUSE)
                 }
@@ -932,21 +960,27 @@ class Aodv extends UnetAgent
             else    // 2) In case my RT has some entries, search for the Desired destination first.
             {
                 /*   If my RT has some entries, check for destination first:
-                *    1) If found, it should be active. Send a notification;
-                *    2) If not, do a Route discovery if the number of re-transmissions permits.
-                */
+                 *   1) If found, it should be active. Send a notification;
+                 *   2) If not, do a Route discovery if the number of re-transmissions permits.
+                 */
                 if (nodePresent(fd) && getActiveStatus(fd) == ACTIVE && getExpirationTime(fd) >= currentTimeMillis())
                 {
                     int ko = getNextHop(fd)             // Destination found in the RT and the route is active.
                     int jo = getHopCount(fd)            // Number of hops.
+
                     rtr << new RouteDiscoveryNtf(to: fd, nextHop: ko, hops: jo, reliability: true)  // Sending Route discovery notification.
+
+                    // Extend the route life of FINAL DESTINATION and NEXT HOP routes.
+                    extendRouteLife(fd)
+                    extendRouteLife(ko)
+
                     return new Message(msg, Performative.AGREE)
                 }
 
                 // Destination was not found in the RT. Do a check on the number of re-transmissions.
                 int reTxCheck = retransmissionCheck(fd)
 
-                if (reTxCheck == 0 && rreqcount <= MAX_RREQ_RATE) // 1) This dest has been searched before, but it hasn't reached its max txs yet.
+                if (reTxCheck == 0) // 2.1) This dest has been searched before, but it hasn't reached its max txs yet.
                 {
                     for (int i = 0; i < attemptHistory.size(); i++)
                     {
@@ -962,7 +996,7 @@ class Aodv extends UnetAgent
                     }
                 }
                 
-                else if (reTxCheck == 1 && rreqcount <= MAX_RREQ_RATE)    // 2) This dest is being searched for the first time.
+                else if (reTxCheck == 1)    // 2.2) This dest is being searched for the first time.
                 {
                     rreqcount++                         // Incrementing the RREQ count.
                     AttemptingHistory tr = new AttemptingHistory(destinationAddr: fd, num: 1)
@@ -973,12 +1007,13 @@ class Aodv extends UnetAgent
                     return new Message(msg, Performative.AGREE)
                 }
 
-                else if (reTxCheck == 2)    // 3) Max txs limit reached. The node is unreachable, so refuse.
+                else if (reTxCheck == 2)    // 2.3) Max txs limit reached. The node is unreachable, so refuse.
                 {
                     return new Message(msg, Performative.REFUSE)
                 }
             }
         }
+
         return null
     }
 
@@ -1013,14 +1048,6 @@ class Aodv extends UnetAgent
             }
         }
 
-        if (msg instanceof TxFrameNtf)
-        {
-            if (msg.getRecipient() == Address.BROADCAST)
-            {
-                lastbroadcast = currentTimeMillis()     // Keeps track of the last broadcast time.
-            }
-        }
-
         // Routing packets: RREQ and RREP.
         if (msg instanceof RxFrameNtf && msg.type == Physical.CONTROL)
         {
@@ -1046,15 +1073,13 @@ class Aodv extends UnetAgent
                     myPacketHistory.add(ph)         // Add the packet's details.
                     packetHistoryDeletion(originalsource, requestIDNo, hopcountvalue)
 
-                    if (originaldest == myAddr)     // 1) I am the Final Destination.
+                    if (originaldest == myAddr)     // 1.1) I am the Final Destination.
                     {
                         seqn = Math.max(seqn, odseqnum)                                 // Sequence number update.
 
                         long clock = Math.max(getExpirationTime(originalsource), currentTimeMillis() + 2*ACTIVE_ROUTE_TIMEOUT)  // New expiry time for this route.
 
                         routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, ACTIVE, INVALID_DSN, ACTIVE, NON_HELLO_PACKET, NON_RREQ)
-                        
-                        println(myAddr+" is the FD. Sending an RREP back. "+originalsource+' exptime: '+clock)
                         
                         long expiry = currentTimeMillis() + 2*ACTIVE_ROUTE_TIMEOUT      // Page 18, 6.6.1.
 
@@ -1069,15 +1094,13 @@ class Aodv extends UnetAgent
                         sendMessage(tx)
                     }
 
-                    else    // 2) I am not the Destination. Simply re-broadcast the RREQ packet.
+                    else    // 1.2) I am not the Destination. Simply re-broadcast the RREQ packet.
                     {
                         long clock = Math.max(getExpirationTime(originalsource), currentTimeMillis() + 2*NET_TRAVERSAL_TIME - 2*hopcountvalue*NODE_TRAVERSAL_TIME)
                         // Page 17
                         routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, INACTIVE, INVALID_DSN, INACTIVE, NON_HELLO_PACKET, RREQ_PKT)
 
-                        int sop = Math.max(getDsn(originaldest), odseqnum)      // Sequence number to be transmitted. Page 17: Lastly,...
-                        
-                        println(myAddr+" is not the FD. Re-broadcasting the RREQ. "+originalsource+' exptime: '+clock)
+                        int sop = Math.max(getDsn(originaldest), odseqnum)      // Sequence number to be transmitted. Page 17
                         
                         TxFrameReq tx = new TxFrameReq(                         // Re-broadcast the RREQ packet.
                             to:         Address.BROADCAST,
@@ -1099,13 +1122,14 @@ class Aodv extends UnetAgent
                     }
 
                     // Doing a packet redundancy check first.
-                    int cool = 0
+                    int redundancycheck = 0
+
                     for (int i = 0; i < myPacketHistory.size(); i++)
                     {   
                         // If a similar packet is found, check its hop count value.
                         if (myPacketHistory.get(i).ridn == requestIDNo && myPacketHistory.get(i).osna == originalsource)
                         {
-                            cool = 1    // This packet is already there.
+                            redundancycheck = 1    // This packet is already there.
 
                             // If the hop count in the packet < that in the RT, accept it.
                             if (hopcountvalue < myPacketHistory.get(i).hoco)
@@ -1113,7 +1137,7 @@ class Aodv extends UnetAgent
                                 myPacketHistory.get(i).hoco = hopcountvalue     // Updating the hop count.
                             }
 
-                            else    // This packet is useless.
+                            else    // Discard this packet.
                             {
                                 return
                             }
@@ -1122,7 +1146,7 @@ class Aodv extends UnetAgent
                         }
                     }
 
-                    if (cool == 0)          // The packet was not found in the PH table, add its details.
+                    if (redundancycheck == 0)          // The packet was not found in the PH table, add its details.
                     {
                         PacketHistory ph = new PacketHistory(osna: originalsource, ridn: requestIDNo, hoco: hopcountvalue)
                         myPacketHistory.add(ph)
@@ -1154,26 +1178,27 @@ class Aodv extends UnetAgent
                     // 2) I am not the final destination.
                     else
                     {
-                        // 1) An ACTIVE route is there for the DESTINATION.
+                        // 2.1) An ACTIVE route is there for the DESTINATION.
                         if (nodePresent(originaldest) && getActiveStatus(originaldest) == ACTIVE && getExpirationTime(originaldest) >= currentTimeMillis())
                         {
-                            // 1.1) If the route is Current. Send an RREP back to the OS.
+                            // 2.1.1) If the route is Current. Send an RREP back to the OS.
                             if (getDsn(originaldest) >= odseqnum)
                             {
-                                long clock = Math.max(getExpirationTime(originalsource), currentTimeMillis() + 2*ACTIVE_ROUTE_TIMEOUT)  // New expiry time for this route.
+                                // New expiry time for this route.
+                                long clock = Math.max(getExpirationTime(originalsource), currentTimeMillis() + 2*ACTIVE_ROUTE_TIMEOUT)
 
                                 routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, ACTIVE, INVALID_DSN, ACTIVE, NON_HELLO_PACKET, NON_RREQ)
 
                                 int nextnode = getNextHop(originaldest)         // Next hop for the destination.
 
                                 precursorAddition(originaldest, msg.from)       // Precursor list updated for forward route entry.
-                                precursorAddition(originalsource, nextnode)     // Precursor list updated for reverse route entry.                                 
+                                precursorAddition(originalsource, nextnode)     // Precursor list updated for reverse route entry.                              
 
                                 int lo = getDsn(originaldest)                   // Sequence number of the destination.
                                 int go = getHopCount(originaldest)              // The hop count value for the OD from this node.
                                 long expiry = getExpirationTime(originaldest)   // Expiry time for the RREP, same as that of the route for DESTINATION. 
-                                                                                        // See page 19.
-                                TxFrameReq tx = new TxFrameReq(                     // Preparing the RREP packet.
+                                                                                // See page 19.
+                                TxFrameReq tx = new TxFrameReq(                 // Preparing the RREP packet.
                                     to:         msg.from,
                                     type:       Physical.CONTROL,
                                     protocol:   ROUTING_PROTOCOL,
@@ -1195,10 +1220,11 @@ class Aodv extends UnetAgent
                                 sendMessage(gtx)
                             }
 
-                            // 1.2) The route is not current. Re-broadcast the RREQ.
+                            // 2.1.2) The route is not current. Re-broadcast the RREQ.
                             if (getDsn(originaldest) < odseqnum)
                             {
                                 long clock = Math.max(getExpirationTime(originalsource), currentTimeMillis() + 2*NET_TRAVERSAL_TIME - 2*hopcountvalue*NODE_TRAVERSAL_TIME)
+                                
                                 // Page 17.
                                 routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, INACTIVE, INVALID_DSN, INACTIVE, NON_HELLO_PACKET, RREQ_PKT)
 
@@ -1216,16 +1242,17 @@ class Aodv extends UnetAgent
                             }
                         }
 
-                        // 2) No ACTIVE ROUTE for the DESTINATION in the RT. Re-broadcast the RREQ.
+                        // 2.2) No ACTIVE ROUTE for the DESTINATION in the RT. Re-broadcast the RREQ.
                         else
                         {
                             long clock = Math.max(getExpirationTime(originalsource), currentTimeMillis() + 2*NET_TRAVERSAL_TIME - 2*hopcountvalue*NODE_TRAVERSAL_TIME)
+                            
                             // Page 17.
                             routingDetailsUpdate(originalsource, msg.from, osseqnum, hopcountvalue, clock, VALID_DSN, INACTIVE, INVALID_DSN, INACTIVE, NON_HELLO_PACKET, RREQ_PKT)
 
-                            int sop = Math.max(getDsn(originaldest), odseqnum)          // Sequence number to be transmitted. Page 17: Lastly,...
+                            int sop = Math.max(getDsn(originaldest), odseqnum)      // Sequence number to be transmitted. Page 17: Lastly,...
 
-                            TxFrameReq tx = new TxFrameReq(                             // Preparing the RREQ packet.                           
+                            TxFrameReq tx = new TxFrameReq(                         // Preparing the RREQ packet.                           
                                 to:         Address.BROADCAST,
                                 type:       Physical.CONTROL,
                                 protocol:   ROUTING_PROTOCOL,
@@ -1240,7 +1267,7 @@ class Aodv extends UnetAgent
                 }
             } // of RREQ
 
-            // For RREP. The expiration time in the RREP should be more than the current time.
+            // For RREP packets. The expiration time in the RREP should be more than the current time.
             if (msg.getTo() == node.Address && msg.protocol == ROUTING_PROTOCOL)
             {
                 def info = rreppacket.decode(msg.data)
@@ -1262,25 +1289,27 @@ class Aodv extends UnetAgent
 
                     if (myAddr == originalsource)   // 1) I am the OS.
                     {
-                        println(myAddr+" ROUTE DISCOVERY OVER FOR "+originaldest)
+                        // Sending Route Discovery Notification.
                         rtr << new RouteDiscoveryNtf(to: originaldest, nextHop: msg.from, hops: hopcountvalue, reliability: true) // Send a RouteDiscoveryNtf.
+
+                        // Extend the route life of ORIGINAL DESTINATION and NEXT HOP routes as they will be used now.
+                        extendRouteLife(originaldest)
+                        extendRouteLife(msg.from)
                     }
 
                     else                            // 2) I am not the OS.
                     {
-                        println(myAddr+" not the OS. Sending RREP back to the OS.")
-
                         if (nodePresent(originalsource) && getExpirationTime(originalsource) >= currentTimeMillis())
                         {
-                            int po = getNextHop(originalsource)     // Next hop for the OS.
+                            int po = getNextHop(originalsource)         // Next hop for the OS.
 
                             def bytes = rreppacket.encode(sourceAddr: originalsource, destAddr: originaldest, destSeqNum: odseqnum, hopCount: hopcountvalue, expirationTime: exp)
                             TxFrameReq tx = new TxFrameReq(to: po, type: Physical.CONTROL, protocol: ROUTING_PROTOCOL, data: bytes)
 
                             sendMessage(tx)
 
-                            extendRouteLife(originalsource)         // Extend route life for the ORIGINAL SOURCE.
-                            extendRouteLife(po)                     // Extend route life for the NEXT HOP as mentioned on page 21.
+                            extendRouteLife(originalsource)             // Extend route life for the ORIGINAL SOURCE.
+                            extendRouteLife(po)                         // Extend route life for the NEXT HOP as mentioned on page 21.
 
                             precursorAddition(originaldest, po)         // Precursor addition for forward route entry, see page 21.
                             precursorAddition(originalsource, msg.from) // Precursor addition for reverse route entry, see page 21.
@@ -1303,8 +1332,6 @@ class Aodv extends UnetAgent
                 // HELLO packets.
                 if (packettype == HELLO)
                 {
-                    println(myAddr+" RECEIVED A HELLO PACKET from "+msg.from)
-
                     long life = Math.max(exp, getExpirationTime(originaldest))      // Keep the route life as Maximum. Page 23.
 
                     routingDetailsUpdate(originaldest, originaldest, odseqnum, ++hopcountvalue, life, VALID_DSN, ACTIVE, VALID_DSN, ACTIVE, HELLO_PACKET, NON_RREQ)
@@ -1313,14 +1340,16 @@ class Aodv extends UnetAgent
                 // RERR packets.
                 if (packettype == RERR)
                 {
+                    // Redundancy check for RERR packets.
                     for (int i = 0; i < errorTable.size(); i++)
                     {
                         if (errorTable.get(i).errnode == originaldest && errorTable.get(i).errnum == odseqnum)
                         {
-                            return  // Redundancy check for RERR packets.
+                            return
                         }
                     }
 
+                    // It's a UNIQUE packet.
                     PacketError pe = new PacketError(errnode: originaldest, errnum: odseqnum)
                     errorTable.add(pe)              // Add this RERR Packet's details.
 
@@ -1333,6 +1362,7 @@ class Aodv extends UnetAgent
         if (msg instanceof RxFrameNtf && msg.type == Physical.DATA && msg.protocol == DATA_PROTOCOL)
         {
             def info = dataMsg.decode(msg.data)
+            
             int src = info.source
             int des = info.destination
 
@@ -1341,7 +1371,7 @@ class Aodv extends UnetAgent
 
             if (myAddr == des)  // 1) I am the FINAL DESTINATION.
             {
-                println(myAddr+" DATA RECEIVED!")
+                //
             }
 
             else                // 2) I am not the FINAL DESTINATION for the DATA packet.
@@ -1352,7 +1382,8 @@ class Aodv extends UnetAgent
                     if (getActiveStatus(des) == ACTIVE && getExpirationTime(des) >= currentTimeMillis())
                     {
                         int go = getNextHop(des)    // Next hop for the OD.
-                        println(myAddr+" sending DATA to "+des+" via "+go)
+
+                        // DATA packet.
                         TxFrameReq tx = new TxFrameReq(to: go, type: Physical.DATA, protocol: DATA_PROTOCOL, data: dataMsg.encode(source: src, destination: des))
 
                         sendMessage(tx)
@@ -1374,6 +1405,5 @@ class Aodv extends UnetAgent
     // Parameters to be received from the Simulation file.
     int controlMsgDuration
     int dataMsgDuration
-    int networksize
 
 }

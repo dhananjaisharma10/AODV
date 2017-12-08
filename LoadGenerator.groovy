@@ -69,11 +69,10 @@ class LoadGenerator extends UnetAgent {
   @Override
   void processMessage(Message msg) {
     if (msg instanceof RouteDiscoveryNtf && msg.reliability == true) {
-      println(myAddr+" ROUTEDISC NTF RECEIVED. SENDING DATA to "+msg.to)
       phy << new ClearReq()   // clear any on-going transmission.
       rxDisable()
       phy << new TxFrameReq(to: msg.nextHop, type: Physical.DATA, protocol: Protocol.DATA, data: dataMsg.encode([source: myAddr, destination: msg.to]))
-      add new WakerBehavior(6, {rxEnable()})
+      add new WakerBehavior(214, {rxEnable()})    // Data packet duration of a 64-byte packet at 2400 bps: 214 ms 
     }
   }
 
