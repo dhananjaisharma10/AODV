@@ -4,6 +4,10 @@ import org.arl.unet.phy.*
 import org.arl.unet.mac.*
 import org.arl.unet.nodeinfo.*
 
+"""
+CSMA MAC protocol
+"""
+
 class Csma extends UnetAgent
 {
   private AgentID node, phy
@@ -173,7 +177,7 @@ class Csma extends UnetAgent
     send new ReservationStatusNtf(recipient: msg.sender, requestID: msg.msgID, to: msg.to, from: myAddr, status: status)
   }
 
-  // Parameters to be received from the simulation file.
+  // Parameters to be received from the simulation file (late binding).
   int controlMsgDuration
   int dataMsgDuration
   double targetLoad     // load per node.

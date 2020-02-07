@@ -5,15 +5,16 @@ import org.arl.unet.net.*
 import org.arl.unet.mac.*
 import org.arl.unet.nodeinfo.*
 
-/*  The class implements an Ad hoc On-demand Distance Vector-based routing protocol (designed for MANETs)
- *  for a Shallow Water Ad Hoc Network.
- *
- *  Reference:
- *
- *  C. Perkins, E. Belding-Royer, and S. Das, "Ad-hoc On-Demand Distance Vector (AODV)
- *  Routing," RFC 3561, 2003.
- *
- */
+"""
+The class implements the Ad hoc On-demand Distance Vector-based routing
+protocol (designed for MANETs) for a Shallow Water Ad Hoc Network.
+
+Reference:
+=========
+
+C. Perkins, E. Belding-Royer, and S. Das, "Ad-hoc On-Demand Distance Vector
+(AODV) Routing," RFC 3561, 2003.
+"""
 
 class Aodv extends UnetAgent
 {
@@ -27,8 +28,7 @@ class Aodv extends UnetAgent
     private int rerrcount = 0               // Monitors the RERR rate per second.
     private int firstActiveRouteFlag = 0    // Monitors the FIRST ACTIVE ROUTE instance to initiate HELLO PACKET CHECK.
 
-    // CONSTANT values ->
-
+    /* CONSTANTS */
     // Types of packet:
     private final static int RERR               = 0x01
     private final static int HELLO              = 0x02
@@ -1402,7 +1402,7 @@ class Aodv extends UnetAgent
         }
     }
 
-    // Parameters to be received from the Simulation file.
+    // Parameters to be received from the Simulation file (late binding).
     int controlMsgDuration
     int dataMsgDuration
 
